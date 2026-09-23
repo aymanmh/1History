@@ -1,5 +1,5 @@
 use anyhow::Context;
-use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Local, LocalResult, NaiveDate, TimeZone, Utc};
 use home::home_dir;
 use lazy_static::lazy_static;
 use log::debug;
@@ -121,9 +121,32 @@ pub fn tomorrow_midnight() -> i64 {
 pub fn ymd_midnight(ymd: &str) -> anyhow::Result<i64> {
     let nd = NaiveDate::parse_from_str(ymd, r"%Y-%m-%d")
         .with_context(|| format!("Invalid format: {ymd}"))?;
-    let dt = Local
-        .from_local_datetime(&nd.and_hms_opt(0, 0, 0).unwrap())
-        .unwrap();
+    let mut naive = nd.and_hms_opt(0, 0, 0).unwrap();
+    let mut none_logged = false;
+
+    let dt = loop {
+        match Local.from_local_datetime(&naive) {
+            LocalResult::Single(dt) => break dt,
+            // Fall-back DST transition: midnight occurred twice. Pick the earlier
+            // instant:
+            LocalResult::Ambiguous(earliest, _latest) => {
+                debug!("Ambiguous local midnight for {ymd}, using earliest {earliest}");
+                break earliest;
+            }
+            // Spring-forward DST transition: midnight was skipped entirely.
+            // Walk forward to the first valid local instant that day.
+            LocalResult::None => {
+                if !none_logged {
+                    debug!(
+                        "No local midnight for {ymd} (DST gap), advancing to first valid instant"
+                    );
+                    none_logged = true;
+                }
+                naive += chrono::Duration::minutes(1);
+            }
+        }
+    };
+
     Ok(dt.timestamp_millis())
 }
 
