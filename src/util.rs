@@ -138,7 +138,10 @@ fn local_start_of_day_ms(nd: NaiveDate) -> i64 {
                 LocalResult::Single(dt) => break 'search dt,
                 // Fall-back DST transition: midnight occurred twice. Pick the earlier instant:
                 LocalResult::Ambiguous(earliest, _latest) => {
-                    debug!("Ambiguous local midnight for {}, using earliest {earliest}",nd.format("%Y-%m-%d"));
+                    debug!(
+                        "Ambiguous local midnight for {}, using earliest {earliest}",
+                        nd.format("%Y-%m-%d")
+                    );
                     break 'search earliest;
                 }
                 // Spring-forward DST transition: midnight was skipped entirely.
@@ -146,7 +149,8 @@ fn local_start_of_day_ms(nd: NaiveDate) -> i64 {
                 LocalResult::None => {
                     if !none_logged {
                         debug!(
-                            "No local midnight for {} (DST gap), advancing to first valid instant", nd.format("%Y-%m-%d")
+                            "No local midnight for {} (DST gap), advancing to first valid instant",
+                            nd.format("%Y-%m-%d")
                         );
                         none_logged = true;
                     }
@@ -154,16 +158,22 @@ fn local_start_of_day_ms(nd: NaiveDate) -> i64 {
             }
         }
         // Only reachable if tz data is broken; never hang or fail the timeline.
-        warn!("No valid local time found near {}, treating as UTC", nd.format("%Y-%m-%d"));
+        warn!(
+            "No valid local time found near {}, treating as UTC",
+            nd.format("%Y-%m-%d")
+        );
         return start.and_utc().timestamp_millis();
     };
 
     // Fully skipped day (e.g. Samoa 2011-12-30): we walked into the next day.
     if dt.date_naive() != nd {
-        warn!("{} does not exist locally (whole day skipped), using {dt}", nd.format("%Y-%m-%d"));
+        warn!(
+            "{} does not exist locally (whole day skipped), using {dt}",
+            nd.format("%Y-%m-%d")
+        );
     }
 
-    return dt.timestamp_millis()
+    return dt.timestamp_millis();
 }
 pub fn unixepoch_as_ymd(ts: i64) -> String {
     let dt: DateTime<Local> = Utc.timestamp_opt(ts / 1000, 0).unwrap().into();
