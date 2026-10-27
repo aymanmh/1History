@@ -105,6 +105,7 @@ fn join_path(mut base: PathBuf, rest: &str) -> String {
     base.into_os_string().into_string().unwrap()
 }
 
+#[allow(dead_code)]
 fn default_location(filename: &str) -> String {
     let base = home_dir().unwrap_or_else(temp_dir);
     join_path(base, filename)
