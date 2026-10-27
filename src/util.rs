@@ -2,7 +2,7 @@ use anyhow::Context;
 use chrono::{DateTime, Local, LocalResult, NaiveDate, TimeZone, Utc};
 use home::home_dir;
 use lazy_static::lazy_static;
-use log::debug;
+use log::{debug, warn};
 use minijinja::State;
 use regex::Regex;
 use std::collections::HashMap;
@@ -121,31 +121,42 @@ pub fn tomorrow_midnight() -> i64 {
 pub fn ymd_midnight(ymd: &str) -> anyhow::Result<i64> {
     let nd = NaiveDate::parse_from_str(ymd, r"%Y-%m-%d")
         .with_context(|| format!("Invalid format: {ymd}"))?;
-    let mut naive = nd.and_hms_opt(0, 0, 0).unwrap();
+    let start = nd.and_hms_opt(0, 0, 0).unwrap();
     let mut none_logged = false;
 
-    let dt = loop {
-        match Local.from_local_datetime(&naive) {
-            LocalResult::Single(dt) => break dt,
-            // Fall-back DST transition: midnight occurred twice. Pick the earlier
-            // instant:
-            LocalResult::Ambiguous(earliest, _latest) => {
-                debug!("Ambiguous local midnight for {ymd}, using earliest {earliest}");
-                break earliest;
-            }
-            // Spring-forward DST transition: midnight was skipped entirely.
-            // Walk forward to the first valid local instant that day.
-            LocalResult::None => {
-                if !none_logged {
-                    debug!(
-                        "No local midnight for {ymd} (DST gap), advancing to first valid instant"
-                    );
-                    none_logged = true;
+    let dt = 'search: {
+        // At most 48h of 1-minute steps: real gaps are <= 1h and a fully
+        // skipped day is <= 24h, so this bound is never reached in practice.
+        for minute in 0..=48 * 60 {
+            let naive = start + chrono::Duration::minutes(minute);
+            match Local.from_local_datetime(&naive) {
+                LocalResult::Single(dt) => break 'search dt,
+                // Fall-back DST transition: midnight occurred twice. Pick the earlier instant:
+                LocalResult::Ambiguous(earliest, _latest) => {
+                    debug!("Ambiguous local midnight for {ymd}, using earliest {earliest}");
+                    break 'search earliest;
                 }
-                naive += chrono::Duration::minutes(1);
+                // Spring-forward DST transition: midnight was skipped entirely.
+                // Walk forward to the first valid local instant that day.
+                LocalResult::None => {
+                    if !none_logged {
+                        debug!(
+                            "No local midnight for {ymd} (DST gap), advancing to first valid instant"
+                        );
+                        none_logged = true;
+                    }
+                }
             }
         }
+        // Only reachable if tz data is broken; never hang or fail the timeline.
+        warn!("No valid local time found near {ymd}, treating as UTC");
+        return Ok(start.and_utc().timestamp_millis());
     };
+
+    // Fully skipped day (e.g. Samoa 2011-12-30): we walked into the next day.
+    if dt.date_naive() != nd {
+        warn!("{ymd} does not exist locally (whole day skipped), using {dt}");
+    }
 
     Ok(dt.timestamp_millis())
 }
